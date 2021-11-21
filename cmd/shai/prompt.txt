@@ -1,0 +1,14 @@
+# List files
+>ls
+# go to Downloads
+>cd ~/Downloads
+>ls -l
+>ps uwx
+#what time is it
+>date
+>cd ~
+
+
+
+
+
