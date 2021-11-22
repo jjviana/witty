@@ -6,28 +6,32 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"os/signal"
 	"strings"
-	"syscall"
 	"time"
-	"unicode"
 
-	"github.com/ahmetb/go-cursor"
+	"github.com/ActiveState/vt10x"
 	"github.com/creack/pty"
+	"github.com/gdamore/tcell/v2"
 	"github.com/jjviana/codex/pkg/codex"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"golang.org/x/term"
 )
 
-//go:embed prompt.txt
-var prompt string
+const (
+	StateNormal = iota
+	StateFetchingSuggestions
+	StateSuggesting
+)
+
+var (
+	shellState        int
+	currentSuggestion string
+)
 
 func run() error {
-	// Create arbitrary command.
-	c := exec.Command("bash", "--login")
+	c := exec.Command(shell, shellArgs...)
 
-	// Start the command with a pty.
+	// Start the shell with a pty
 	ptmx, err := pty.Start(c)
 	if err != nil {
 		return err
@@ -35,214 +39,292 @@ func run() error {
 	// Make sure to close the pty at the end.
 	defer func() { _ = ptmx.Close() }() // Best effort.
 
-	// Handle pty size.
-	ch := make(chan os.Signal, 1)
-	signal.Notify(ch, syscall.SIGWINCH)
+	// Create the virtual terminal to interpret the shell output
+	var state vt10x.State
+	vterm, err := vt10x.Create(&state, ptmx)
+	if err != nil {
+		return err
+	}
+	defer vterm.Close()
+
+	stdInChan := make(chan []byte)
+	tty, err := NewMirrorTty(stdInChan)
+	if err != nil {
+		return err
+	}
+	go stdinToShellLoop(ptmx, stdInChan)
+
+	// Create the screen to render the shell output
+	s, err := tcell.NewTerminfoScreenFromTty(tty)
+	if err != nil {
+		return err
+	}
+	defer s.Fini()
+
+	err = s.Init()
+	if err != nil {
+		return err
+	}
+
+	width, height := s.Size()
+	vt10x.ResizePty(ptmx, width, height)
+	vterm.Resize(width, height)
+
+	endc := make(chan bool)
+	updatec := make(chan struct{}, 1)
 	go func() {
-		for range ch {
-			if err := pty.InheritSize(os.Stdin, ptmx); err != nil {
-				log.Printf("error resizing pty: %s", err)
+		defer close(endc)
+		// Parses the shell output
+		for {
+			err := vterm.Parse()
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				break
+			}
+			select {
+			case updatec <- struct{}{}:
+			default:
 			}
 		}
 	}()
-	ch <- syscall.SIGWINCH                        // Initial resize.
-	defer func() { signal.Stop(ch); close(ch) }() // Cleanup signals when done.
 
-	// Set stdin in raw mode.
-	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
-	if err != nil {
-		panic(err)
-	}
-	defer func() { _ = term.Restore(int(os.Stdin.Fd()), oldState) }() // Best effort.
-
-	// Copy stdin to the pty and the pty to stdout.
-	ich := make(chan string)
-	go readerLoop(ptmx, ich)
-	go writerLoop(ptmx, ich)
-	_, _ = io.Copy(os.Stdout, ptmx)
-
-	return nil
-}
-
-func readerLoop(r *os.File, out chan string) {
-	b := make([]byte, 1024)
-	for {
-		n, err := os.Stdin.Read(b)
-		if err != nil {
-			log.Err(err).Msgf("error reading from stdin: %s", err)
-			os.Exit(1)
+	// Polls input events from the screen
+	eventc := make(chan tcell.Event, 4)
+	go func() {
+		for {
+			eventc <- s.PollEvent()
 		}
-		if n == 0 {
-			continue
-		}
-		log.Debug().Msgf("stdin: %s", string(b[:n]))
-		out <- string(b[:n])
-	}
-}
+	}()
 
-func writerLoop(w *os.File, in chan string) {
-	var currentInput strings.Builder
-	var history []string
-	var suggesting bool
-	var suggestion string
-	var err error
-
+	// Main event loop
 	for {
 		select {
-		case str := <-in:
-			for _, c := range str {
-				switch c {
-				case '\n', '\r':
-					if currentInput.Len() > 0 {
-						history = append(history, currentInput.String())
-						log.Debug().Msgf("command: %s", currentInput.String())
-						currentInput.Reset()
-
-					}
-				case 0x007f: // Backspace
-
-					if currentInput.Len() > 0 {
-						current := currentInput.String()
-						currentInput.Reset()
-						currentInput.WriteString(current[:len(current)-1])
-					}
-				case '\t':
-					if suggesting && len(suggestion) > 0 {
-						// Writes the suggestion and adds to the current input.
-						_, _ = w.Write([]byte(suggestion))
-						currentInput.WriteString(suggestion)
-						suggestion = ""
-						suggesting = false
-						continue
-					}
-				default:
-					// Adds to the current input if it's not a control character.
-					if !unicode.IsControl(c) {
-						currentInput.WriteRune(c)
-					}
-
-				}
+		case event := <-eventc:
+			switch ev := event.(type) {
+			case *tcell.EventResize:
+				width, height = ev.Size()
+				vt10x.ResizePty(ptmx, width, height)
+				vterm.Resize(width, height)
+				s.Sync()
 			}
-			_, err := w.Write([]byte(str))
-			if err != nil {
-				log.Err(err).Msgf("error writing to pty: %s", err)
-				os.Exit(1)
-			}
-			suggesting = false
-		case <-time.After(time.Second):
-			log.Debug().Msgf("timeout")
-			if !suggesting {
-				suggesting = true
-				suggestion, err = suggest(currentInput.String(), history)
-				if err != nil {
-					log.Err(err).Msgf("error suggesting: %s", err)
-				} else {
-					if suggestion != "" {
-						os.Stdout.Write([]byte(Cyan + suggestion + Reset))
-						os.Stdout.Write([]byte(cursor.MoveLeft(len(suggestion))))
-						if err != nil {
-							log.Err(err).Msgf("error writing suggestion to pty: %s", err)
-						}
-					}
-				}
+		case <-endc:
+			return nil
+
+		case <-updatec:
+			updateScreen(s, &state, width, height)
+
+		case <-time.After(1 * time.Second):
+			log.Debug().Msg("shell is idle, state is " + string(shellState))
+			if shellState == StateNormal {
+				shellState = StateFetchingSuggestions
+				go fetchSuggestions(state, updatec)
 			}
 
 		}
 	}
 }
 
-var (
-	Reset      = "\033[0m"
-	Red        = "\033[31m"
-	Green      = "\033[32m"
-	Yellow     = "\033[33m"
-	Blue       = "\033[34m"
-	Purple     = "\033[35m"
-	Cyan       = "\033[36m"
-	Gray       = "\033[37m"
-	White      = "\033[97m"
-	completion codex.CompletionParameters
-)
+func fetchSuggestions(state vt10x.State, updatec chan struct{}) {
+	prompt := state.StringBeforeCursor()
+	if len(prompt) > 0 {
+		prompt = prompt[:len(prompt)-1] // remove the trailing newline inserted wrongly by the vt10x parser
+	}
+	if len(prompt) > 0 {
+		log.Debug().Msgf("prompt: %s", prompt)
+		suggestion, err := suggest(prompt)
+		if err != nil {
+			log.Error().Err(err).Msg("error fetching suggestion")
+			shellState = StateNormal
+			currentSuggestion = ""
+			return
+		}
+		if shellState == StateFetchingSuggestions { // someone else might have already changed the state
+			shellState = StateSuggesting
+			currentSuggestion = strings.Trim(suggestion, " ")
+			updatec <- struct{}{} // trigger a screen updateScreen
+		}
+	} else {
+		shellState = StateNormal
+		currentSuggestion = ""
+	}
+}
+
+const suggestionColor = tcell.ColorDarkGray
+
+func updateScreen(s tcell.Screen, state *vt10x.State, w, h int) {
+	state.Lock()
+	defer state.Unlock()
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			c, fg, bg := state.Cell(x, y)
+
+			style := tcell.StyleDefault
+			if fg != vt10x.DefaultFG {
+				style = style.Foreground(tcell.Color(fg))
+			}
+			if bg != vt10x.DefaultBG {
+				style = style.Background(tcell.Color(bg))
+			}
+
+			s.SetContent(x, y, c, nil, style)
+
+		}
+	}
+	if state.CursorVisible() {
+		curx, cury := state.Cursor()
+		s.ShowCursor(curx, cury)
+		if currentSuggestion != "" {
+			style := tcell.StyleDefault.Foreground(suggestionColor)
+			x := curx
+			y := cury
+			for i := 0; i < len(currentSuggestion); i++ {
+				if currentSuggestion[i] == '\n' {
+					y++
+					x = 0
+				}
+				s.SetContent(x, y, rune(currentSuggestion[i]), nil, style)
+				x++
+			}
+		}
+	} else {
+		s.HideCursor()
+	}
+	s.Show()
+}
+
+func stdinToShellLoop(shell io.Writer, stdin chan []byte) {
+	for data := range stdin {
+		if shellState == StateSuggesting {
+			if data[0] == '\t' && len(currentSuggestion) > 0 {
+				_, err := shell.Write([]byte(currentSuggestion))
+				if err != nil {
+					log.Error().Err(err).Msg("failed to write to shell")
+					os.Exit(1)
+				}
+				data = data[1:]
+			}
+			shellState = StateNormal
+			currentSuggestion = ""
+		}
+		_, err := shell.Write(data)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to write to shell")
+			os.Exit(1)
+		}
+	}
+}
+
+var completion codex.CompletionParameters
 
 func init() {
-	completion.EngineID = "davinci-codex"
-	completion.MaxTokens = 64
-	completion.Stop = []string{"\n", "\r"}
-	completion.Temperature = 0.0
 	completion.APIKey = os.Getenv("OPENAPI_API_KEY")
 	if completion.APIKey == "" {
 		log.Fatal().Msg("OPENAPI_API_KEY not set")
 		os.Exit(1)
 	}
+	completion.MaxTokens = 64
+	completion.Temperature = 0.0
+	completion.Stop = []string{"\n"}
 }
 
-func suggest(input string, history []string) (string, error) {
-	var currentPrompt strings.Builder
-	currentPrompt.WriteString(prompt)
+const (
+	cushman = "cushman-codex"
+	davinci = "davinci-codex"
+)
 
-	for _, h := range history {
-		format := promptLineFormat(h, false)
-		currentPrompt.Write([]byte(fmt.Sprintf(format, h)))
+func suggest(prompt string) (string, error) {
+	// Try cushman first, as it is faster and cheaper
+	suggestion, err := suggestWithEngine(cushman, prompt)
+	if err != nil || len(suggestion) == 0 {
+		// Try davinci as a fallback
+		suggestion, err = suggestWithEngine(davinci, prompt)
 	}
-	currentPrompt.Write([]byte(fmt.Sprintf(promptLineFormat(input, true), input)))
-	log.Debug().Msgf("current prompt: %s", currentPrompt.String())
+	return suggestion, err
+}
+
+func suggestWithEngine(engine, prompt string) (string, error) {
+	log.Debug().Msgf("requesting suggestion to %s  with  prompt: %s", engine, prompt)
 
 	request := completion
-	request.Prompt = currentPrompt.String()
+	request.Prompt = prompt
+	request.EngineID = engine
 
 	completion, err := codex.GenerateCompletions(request)
 	if err != nil {
 		return "", err
 	}
 	log.Debug().Msgf("Got completions: %+v", completion)
+
 	if len(completion.Choices) > 0 {
+		choice := completion.Choices[0]
+		probabilities := choice.Logprobs.TokenProbabilities()
+		for i, p := range probabilities {
+			log.Debug().Msgf("Token %s probability %.3f", choice.Logprobs.Tokens[i], p)
+		}
 		return completion.Choices[0].Text, nil
 	}
 	return "", nil
 }
 
-func promptLineFormat(h string, lastLine bool) string {
-	var format string
-	if !strings.HasPrefix(h, "#") {
-		format = ">%s"
-	} else {
-		format = "%s"
-	}
-	if !lastLine {
-		format = format + "\n"
-	}
-	return format
-}
+var (
+	debugFile string
+	shell     string
+	shellArgs []string
+)
 
 // Parse args.
 // -d <file>: turn on debug mode and write to file.
+// -s <shell>: select the shell to use.
 // -h: show help.
-func parseArgs() (string, bool) {
+// -- passes the rest of the args to the shell
+func parseArgs() {
 	for i := 1; i < len(os.Args); i++ {
 		switch os.Args[i] {
 		case "-d":
 			if i+1 < len(os.Args) {
-				return os.Args[i+1], true
+				debugFile = os.Args[i+1]
+				i++
+			} else {
+				log.Print("-d requires an argument")
+				os.Exit(1)
+			}
+		case "-s":
+			if i+1 < len(os.Args) {
+				shell = os.Args[i+1]
+				i++
+			} else {
+				log.Print("-s requires an argument value")
+				os.Exit(1)
 			}
 		case "-h":
 			printUsage()
 			os.Exit(0)
+		case "--":
+			shellArgs = os.Args[i+1:]
+			break
 		}
 	}
-	return "", false
 }
 
 func printUsage() {
-	log.Printf("Usage: %s [-d <file>] [-h]", os.Args[0])
+	log.Printf("Usage: %s [options] [shell args]", os.Args[0])
 	log.Printf("Options:")
 	log.Printf("  -d <file>: turn on debug mode and write to file.")
+	log.Printf("  -s shell: select shell to run (default $SHELL)")
+	log.Printf("  --: pass the rest of the args to the shell.")
 	log.Printf("  -h: show help.")
 }
 
 func main() {
-	// Parse args.
-	debugFile, debug := parseArgs()
-	if debug {
+	parseArgs()
+	if shell == "" {
+		// Finds the current shell based on the $SHELL environment variable
+		shell = os.Getenv("SHELL")
+		if shell == "" {
+			shell = "/bin/sh"
+		}
+	}
+	if debugFile != "" {
 		// set zerolog debug level
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 		f, err := os.OpenFile(debugFile, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o666)
@@ -254,9 +336,11 @@ func main() {
 		// Change the zerolog global logger to write to the file.
 		log.Logger = zerolog.New(f).With().Timestamp().Logger()
 
+	} else {
+		zerolog.SetGlobalLevel(zerolog.Disabled)
 	}
 
 	if err := run(); err != nil {
-		log.Err(err).Msgf("failed to run shai: %s", err)
+		log.Err(err).Msgf("failed to run : %s", err)
 	}
 }

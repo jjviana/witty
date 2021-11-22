@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"math"
 	"net/http"
 
 	"github.com/rs/zerolog/log"
@@ -79,7 +80,7 @@ func GenerateCompletions(params CompletionParameters) (Completion, error) {
 		return completion, err
 	}
 	if len(completion.Error) > 0 {
-		return completion, fmt.Errorf("request error: %_v", completion.Error)
+		return completion, fmt.Errorf("request error: %+v", completion.Error)
 	}
 
 	return completion, nil
@@ -108,6 +109,15 @@ type Logprobs struct {
 	TokenLogProbs []float64 `json:"token_logprobs"`
 	Tokens        []string  `json:"tokens"`
 	TopLogProbs   []float64 `json:"top_logprobs"`
+}
+
+func (l Logprobs) TokenProbabilities() []float64 {
+	// convert from logprobs to probabilities
+	probs := make([]float64, len(l.TokenLogProbs))
+	for i, logprob := range l.TokenLogProbs {
+		probs[i] = math.Exp(logprob)
+	}
+	return probs
 }
 
 func httpPost(url, apiKey, body string) ([]byte, error) {
