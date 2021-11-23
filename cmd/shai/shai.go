@@ -103,6 +103,7 @@ func run() error {
 			switch ev := event.(type) {
 			case *tcell.EventResize:
 				width, height = ev.Size()
+				log.Debug().Msgf("Resize: %d x %d", width, height)
 				vt10x.ResizePty(ptmx, width, height)
 				vterm.Resize(width, height)
 				s.Sync()
@@ -140,7 +141,7 @@ func fetchSuggestions(state vt10x.State, updatec chan struct{}) {
 		}
 		if shellState == StateFetchingSuggestions { // someone else might have already changed the state
 			shellState = StateSuggesting
-			currentSuggestion = strings.Trim(suggestion, " ")
+			currentSuggestion = strings.TrimRight(suggestion, " ")
 			updatec <- struct{}{} // trigger a screen updateScreen
 		}
 	} else {
@@ -154,6 +155,7 @@ const suggestionColor = tcell.ColorDarkGray
 func updateScreen(s tcell.Screen, state *vt10x.State, w, h int) {
 	state.Lock()
 	defer state.Unlock()
+	log.Debug().Msgf("updating screen, width: %d, height: %d", w, h)
 	for y := 0; y < h; y++ {
 		for x := 0; x < w; x++ {
 			c, fg, bg := state.Cell(x, y)
@@ -194,7 +196,9 @@ func updateScreen(s tcell.Screen, state *vt10x.State, w, h int) {
 
 func stdinToShellLoop(shell io.Writer, stdin chan []byte) {
 	for data := range stdin {
-		if shellState == StateSuggesting {
+		log.Debug().Msgf("stdin: %+v", data)
+		switch shellState {
+		case StateSuggesting:
 			if data[0] == '\t' && len(currentSuggestion) > 0 {
 				_, err := shell.Write([]byte(currentSuggestion))
 				if err != nil {
@@ -203,6 +207,10 @@ func stdinToShellLoop(shell io.Writer, stdin chan []byte) {
 				}
 				data = data[1:]
 			}
+			shellState = StateNormal
+			currentSuggestion = ""
+		case StateFetchingSuggestions:
+			// invalidate the suggestion fetch request as it is based on a stale prompt at this point
 			shellState = StateNormal
 			currentSuggestion = ""
 		}

@@ -30,6 +30,8 @@ import (
 )
 
 // stdIoTty is an implementation of the Tty API based upon stdin/stdout.
+// We modify the original tcell implementation to make it possible to copy unprocessed stdin to
+// the shell process.
 type stdIoTty struct {
 	fd     int
 	in     *os.File
