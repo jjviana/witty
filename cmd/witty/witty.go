@@ -150,7 +150,7 @@ func fetchSuggestions(state vt10x.State, updatec chan struct{}) {
 	}
 }
 
-const suggestionColor = tcell.ColorDarkGray
+var suggestionColor = tcell.ColorDarkGray
 
 func updateScreen(s tcell.Screen, state *vt10x.State, w, h int) {
 	state.Lock()
@@ -283,11 +283,23 @@ var (
 // Parse args.
 // -d <file>: turn on debug mode and write to file.
 // -s <shell>: select the shell to use.
+// -c <color>: select suggested completion color.
 // -h: show help.
 // -- passes the rest of the args to the shell
 func parseArgs() {
 	for i := 1; i < len(os.Args); i++ {
 		switch os.Args[i] {
+		case "-c":
+			i++
+			if i < len(os.Args) {
+				color, ok := tcell.ColorNames[strings.ToLower(os.Args[i])]
+				if ok {
+					suggestionColor = color
+				} else {
+					log.Fatal().Msgf("invalid color %s", os.Args[i])
+					os.Exit(1)
+				}
+			}
 		case "-d":
 			if i+1 < len(os.Args) {
 				debugFile = os.Args[i+1]
