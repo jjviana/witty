@@ -1,10 +1,7 @@
 # Witty
 
 Witty is a smart terminal emulator, powered by [OpenAI Codex](https://openai.com/blog/openai-codex/).
-It will suggest completions for anything run under it (shell, text editors etc.).
-
-The generated completions are often useful, sometimes clever, and at times funny.
-
+It will suggest completions for anything run under it (shell, text editors etc.) in a way that is similar to [Github Copilot](https://copilot.github.com/). 
 
 # Demos
 
@@ -40,3 +37,9 @@ Here Witty manipulates a CSV file and performs data transformations:
 
 https://user-images.githubusercontent.com/1808006/143598361-e68f450b-6586-4cef-b1e1-0dd89901bf08.mp4
 
+# Credits
+
+This project would not have been possible without:
+- [OpenAI Codex](https://openai.com/blog/openai-codex/), of course.
+- [vt10x](github.com/ActiveState/vt10x), a terminal emulator backend in Go
+- [tcell](github.com/gdamore/tcell), a terminal screen renderer in Go
