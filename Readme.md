@@ -1,4 +1,4 @@
-# Witty
+# WiTTY
 
 Witty is a smart terminal emulator, powered by [OpenAI Codex](https://openai.com/blog/openai-codex/).
 It will suggest completions for anything run under it (shell, text editors etc.) in a way that is similar to [Github Copilot](https://copilot.github.com/). 
