@@ -41,5 +41,5 @@ https://user-images.githubusercontent.com/1808006/143598361-e68f450b-6586-4cef-b
 
 This project would not have been possible without:
 - [OpenAI Codex](https://openai.com/blog/openai-codex/), of course.
-- [vt10x](github.com/ActiveState/vt10x), a terminal emulator backend in Go
-- [tcell](github.com/gdamore/tcell), a terminal screen renderer in Go
+- [vt10x](https://github.com/ActiveState/vt10x), a terminal emulator backend in Go
+- [tcell](https://github.com/gdamore/tcell), a terminal screen renderer in Go
