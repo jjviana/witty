@@ -27,6 +27,12 @@ how to handle image conversion:
 
 https://user-images.githubusercontent.com/1808006/143602390-d2ecd65d-7fa0-4952-a630-438467b2b7ca.mov
 
+## Kubernetes
+
+Kubernetes controlled from natural language:
+
+https://user-images.githubusercontent.com/1808006/143656487-5d2028fc-2926-46ad-a261-403e763991c6.mov
+
 
 
 ## System Administration
