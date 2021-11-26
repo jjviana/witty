@@ -3,6 +3,18 @@
 Witty is a smart terminal emulator, powered by [OpenAI Codex](https://openai.com/blog/openai-codex/).
 It will suggest completions for anything run under it (shell, text editors etc.) in a way that is similar to [Github Copilot](https://copilot.github.com/). 
 
+## Running
+
+You will need an OpenAI API key with access to the Codex models.
+
+```
+git clone https://github.com/jjviana/witty.git
+cd witty/cmd/witty
+go build .
+export OPENAPI_API_KEY=<your api key>
+./witty 
+(see --help for options)
+```
 # Demos
 
 In the demos below the autocomplete suggestions are rendered in red. 
