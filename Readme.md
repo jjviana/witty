@@ -45,7 +45,7 @@ https://user-images.githubusercontent.com/1808006/143599435-c8bd4143-d22f-429b-8
 
 ## Data Science
 
-Here Witty manipulates a CSV file and performs data transformations: 
+Here Witty manipulates a CSV file and performs data transformations, while seamlessly switching from bash to Python:
 
 https://user-images.githubusercontent.com/1808006/143598361-e68f450b-6586-4cef-b1e1-0dd89901bf08.mp4
 
