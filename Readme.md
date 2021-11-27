@@ -7,6 +7,8 @@ It will suggest completions for anything run under it (shell, text editors etc.)
 
 You will need an OpenAI API key with access to the Codex models.
 
+## From source
+
 ```
 git clone https://github.com/jjviana/witty.git
 cd witty/cmd/witty
@@ -15,6 +17,10 @@ export OPENAPI_API_KEY=<your api key>
 ./witty 
 (see --help for options)
 ```
+
+## From binary releases
+
+Binaries for MacOS, Linux and Freebsd can be found in the [releases](https://github.com/jjviana/witty/releases) page.
 # Demos
 
 In the demos below the autocomplete suggestions are rendered in red. 
