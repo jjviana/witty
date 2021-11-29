@@ -81,6 +81,11 @@ func run() error {
 				fmt.Fprintln(os.Stderr, err)
 				break
 			}
+			if shellState == StateSuggesting {
+				// Reset the state as output has change
+				shellState = StateNormal
+				currentSuggestion = ""
+			}
 			select {
 			case updatec <- struct{}{}:
 			default:
