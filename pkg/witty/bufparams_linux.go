@@ -1,6 +1,5 @@
-//+build darwin freebsd
-
-package main
+//+build linux
+package witty
 
 import (
 	"syscall"
@@ -13,13 +12,13 @@ import (
 // This also waits for output to drain first.
 func tcSetBufParams(fd int, vMin uint8, vTime uint8) error {
 	_ = syscall.SetNonblock(fd, true)
-	tio, err := unix.IoctlGetTermios(fd, unix.TIOCGETA)
+	tio, err := unix.IoctlGetTermios(fd, unix.TCGETA)
 	if err != nil {
 		return err
 	}
 	tio.Cc[unix.VMIN] = vMin
 	tio.Cc[unix.VTIME] = vTime
-	if err = unix.IoctlSetTermios(fd, unix.TIOCSETAW, tio); err != nil {
+	if err = unix.IoctlSetTermios(fd, unix.TCSETAW, tio); err != nil {
 		return err
 	}
 	return nil

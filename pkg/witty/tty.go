@@ -1,4 +1,4 @@
-package main
+package witty
 
 // Copyright 2021 The TCell Authors
 //
