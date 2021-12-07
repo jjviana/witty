@@ -17,6 +17,7 @@ package witty
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"strconv"
@@ -25,6 +26,7 @@ import (
 	"time"
 
 	"github.com/gdamore/tcell/v2"
+	"github.com/rs/zerolog/log"
 	"golang.org/x/term"
 )
 
@@ -45,13 +47,18 @@ type stdIoTty struct {
 }
 
 func (tty *stdIoTty) Read(b []byte) (int, error) {
+	// log.Debug().Msgf("tty.Read()")
 	n, err := tty.in.Read(b)
 	if err != nil {
-		return n, err
+		log.Debug().Msgf("tty.Read() error: %v", err)
+		return n, io.EOF
 	}
+	log.Debug().Msgf("tty.Read() - %d bytes", n)
 	if tty.mirror != nil {
+		log.Debug().Msgf("tty.Read() - mirroring %d bytes", n)
 		tty.mirror <- b[:n]
 	}
+	log.Debug().Msgf("tty.Read() - done")
 	return n, nil
 }
 
@@ -64,6 +71,7 @@ func (tty *stdIoTty) Close() error {
 }
 
 func (tty *stdIoTty) Start() error {
+	log.Debug().Msgf("tty.Start()")
 	tty.l.Lock()
 	defer tty.l.Unlock()
 
@@ -85,7 +93,15 @@ func (tty *stdIoTty) Start() error {
 		return errors.New("device is not a terminal")
 	}
 
-	_ = tty.in.SetReadDeadline(time.Time{})
+	err = tty.in.SetReadDeadline(time.Time{})
+	if err != nil {
+		log.Debug().Msgf("tty.Start() - SetReadDeadline() failed: %v", err)
+	}
+	err = syscall.SetNonblock(tty.fd, false)
+	if err != nil {
+		log.Debug().Msgf("tty.Start() - SetNonblock() failed: %v", err)
+	}
+
 	saved, err := term.MakeRaw(tty.fd) // also sets vMin and vTime
 	if err != nil {
 		return err
@@ -124,6 +140,7 @@ func (tty *stdIoTty) Drain() error {
 }
 
 func (tty *stdIoTty) Stop() error {
+	log.Debug().Msgf("tty.Stop()")
 	tty.l.Lock()
 	if err := term.Restore(tty.fd, tty.saved); err != nil {
 		tty.l.Unlock()

@@ -2,6 +2,7 @@ module github.com/jjviana/codex
 
 go 1.16
 
+
 require (
 	github.com/ActiveState/vt10x v1.3.1
 	github.com/creack/pty v1.1.17

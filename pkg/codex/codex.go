@@ -21,6 +21,7 @@ type CompletionParameters struct {
 	FrequencyPenalty float64
 	PresencePenalty  float64
 	Stop             []string
+	LogProbs         int
 }
 
 // GenerateCompletions generates a list of possible completions for the given prompt.
@@ -64,9 +65,9 @@ func GenerateCompletions(params CompletionParameters) (Completion, error) {
   "top_p": %f,
   "frequency_penalty": %f,
   "presence_penalty": %f,
-  "logprobs": 0,
+  "logprobs": %d,
   "stop": %s
-}`, promptJSON, params.Temperature, params.MaxTokens, params.TopP, params.FrequencyPenalty, params.PresencePenalty, string(stopJSON))
+}`, promptJSON, params.Temperature, params.MaxTokens, params.TopP, params.FrequencyPenalty, params.PresencePenalty, params.LogProbs, string(stopJSON))
 
 	resp, err := httpPost(url, params.APIKey, body)
 	if err != nil {
@@ -105,10 +106,10 @@ type Choice struct {
 }
 
 type Logprobs struct {
-	TextOffset    []float64 `json:"text_offset"`
-	TokenLogProbs []float64 `json:"token_logprobs"`
-	Tokens        []string  `json:"tokens"`
-	TopLogProbs   []float64 `json:"top_logprobs"`
+	TextOffset    []float64            `json:"text_offset"`
+	TokenLogProbs []float64            `json:"token_logprobs"`
+	Tokens        []string             `json:"tokens"`
+	TopLogProbs   []map[string]float64 `json:"top_logprobs"`
 }
 
 func (l Logprobs) TokenProbabilities() []float64 {

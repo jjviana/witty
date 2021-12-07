@@ -23,7 +23,7 @@ const (
 type Witty struct {
 	shellCommand         string
 	shellArgs            []string
-	shellState           int
+	wittyState           int
 	currentSuggestion    string
 	completionParameters codex.CompletionParameters
 	terminalState        vt10x.State
@@ -31,16 +31,19 @@ type Witty struct {
 	screen               tcell.Screen
 	shellPty             *os.File
 	suggestionColor      tcell.Color
+	updateTrigger        chan struct{}
 }
 
 func New(completionParameters codex.CompletionParameters, color tcell.Color, shell string, args []string) *Witty {
-	return &Witty{
-		shellState:           StateNormal,
+	w := &Witty{
+		wittyState:           StateNormal,
 		completionParameters: completionParameters,
 		suggestionColor:      color,
 		shellCommand:         shell,
 		shellArgs:            args,
 	}
+	w.completionParameters.LogProbs = 10
+	return w
 }
 
 func (w *Witty) Run() error {
@@ -86,7 +89,7 @@ func (w *Witty) Run() error {
 	w.vterm.Resize(width, height)
 
 	endc := make(chan bool)
-	updatec := make(chan struct{}, 1)
+	w.updateTrigger = make(chan struct{}, 1)
 	go func() {
 		defer close(endc)
 		// Parses the shell output
@@ -96,15 +99,12 @@ func (w *Witty) Run() error {
 				fmt.Fprintln(os.Stderr, err)
 				break
 			}
-			if w.shellState == StateSuggesting {
+			if w.wittyState == StateSuggesting {
 				// Reset the state as output has change
-				w.shellState = StateNormal
+				w.wittyState = StateNormal
 				w.currentSuggestion = ""
 			}
-			select {
-			case updatec <- struct{}{}:
-			default:
-			}
+			w.triggerScreenUpdate()
 		}
 	}()
 
@@ -131,38 +131,45 @@ func (w *Witty) Run() error {
 		case <-endc:
 			return nil
 
-		case <-updatec:
+		case <-w.updateTrigger:
 			w.updateScreen(w.screen, &w.terminalState, width, height)
 
 		case <-time.After(1 * time.Second):
-			log.Debug().Msg("shell is idle, state is " + string(w.shellState))
-			if w.shellState == StateNormal {
-				w.shellState = StateFetchingSuggestions
-				go w.fetchSuggestions(updatec)
+			log.Debug().Msg("shell is idle, state is " + string(w.wittyState))
+			if w.wittyState == StateNormal {
+				w.wittyState = StateFetchingSuggestions
+				go w.fetchSuggestions()
 			}
 
 		}
 	}
 }
 
-func (w *Witty) fetchSuggestions(updatec chan struct{}) {
+func (w *Witty) triggerScreenUpdate() {
+	select {
+	case w.updateTrigger <- struct{}{}:
+	default:
+	}
+}
+
+func (w *Witty) fetchSuggestions() {
 	prompt := getPrompt(w.terminalState)
 	if len(prompt) > 0 {
 		log.Debug().Msgf("prompt: %s", prompt)
 		suggestion, err := w.suggest(prompt)
 		if err != nil {
 			log.Error().Err(err).Msg("error fetching suggestion")
-			w.shellState = StateNormal
+			w.wittyState = StateNormal
 			w.currentSuggestion = ""
 			return
 		}
-		if w.shellState == StateFetchingSuggestions { // someone else might have already changed the state
-			w.shellState = StateSuggesting
+		if w.wittyState == StateFetchingSuggestions { // someone else might have already changed the state
+			w.wittyState = StateSuggesting
 			w.currentSuggestion = strings.TrimRight(suggestion, " ")
-			updatec <- struct{}{} // trigger a screen updateScreen
+			w.triggerScreenUpdate()
 		}
 	} else {
-		w.shellState = StateNormal
+		w.wittyState = StateNormal
 		w.currentSuggestion = ""
 	}
 }
@@ -220,7 +227,7 @@ func (w *Witty) updateScreen(s tcell.Screen, state *vt10x.State, width, height i
 func (w *Witty) stdinToShellLoop(stdin chan []byte) {
 	for data := range stdin {
 		log.Debug().Msgf("stdin: %+v", data)
-		switch w.shellState {
+		switch w.wittyState {
 		case StateSuggesting:
 			if data[0] == '\t' && len(w.currentSuggestion) > 0 {
 				_, err := w.shellPty.Write([]byte(w.currentSuggestion))
@@ -229,13 +236,21 @@ func (w *Witty) stdinToShellLoop(stdin chan []byte) {
 					os.Exit(1)
 				}
 				data = data[1:]
+			} else if data[0] == 15 { // ctrl-o
+				log.Debug().Msgf("Suspending normal UI...")
+				w.screen.Suspend()
+				w.showCompletionsUI()
+				w.screen.Resume()
+				log.Debug().Msgf("Resumed from suggestions UI")
+				w.triggerScreenUpdate()
+				continue
 			}
 
-			w.shellState = StateNormal
+			w.wittyState = StateNormal
 			w.currentSuggestion = ""
 		case StateFetchingSuggestions:
 			// invalidate the suggestion fetch request as it is based on a stale prompt at this point
-			w.shellState = StateNormal
+			w.wittyState = StateNormal
 			w.currentSuggestion = ""
 		}
 		_, err := w.shellPty.Write(data)
