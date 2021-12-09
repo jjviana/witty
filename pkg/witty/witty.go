@@ -24,7 +24,7 @@ type Witty struct {
 	shellCommand         string
 	shellArgs            []string
 	wittyState           int
-	currentSuggestion    string
+	currentSuggestion    *codex.Choice
 	completionParameters codex.CompletionParameters
 	terminalState        vt10x.State
 	vterm                *vt10x.VT
@@ -102,7 +102,7 @@ func (w *Witty) Run() error {
 			if w.wittyState == StateSuggesting {
 				// Reset the state as output has change
 				w.wittyState = StateNormal
-				w.currentSuggestion = ""
+				w.currentSuggestion = nil
 			}
 			w.triggerScreenUpdate()
 		}
@@ -153,29 +153,30 @@ func (w *Witty) triggerScreenUpdate() {
 }
 
 func (w *Witty) fetchSuggestions() {
-	prompt := getPrompt(w.terminalState)
+	prompt := w.getPrompt()
 	if len(prompt) > 0 {
 		log.Debug().Msgf("prompt: %s", prompt)
 		suggestion, err := w.suggest(prompt)
 		if err != nil {
 			log.Error().Err(err).Msg("error fetching suggestion")
 			w.wittyState = StateNormal
-			w.currentSuggestion = ""
+			w.currentSuggestion = nil
 			return
 		}
 		if w.wittyState == StateFetchingSuggestions { // someone else might have already changed the state
 			w.wittyState = StateSuggesting
-			w.currentSuggestion = strings.TrimRight(suggestion, " ")
+			w.currentSuggestion = suggestion
+			w.currentSuggestion.Text = strings.TrimRight(suggestion.Text, " ")
 			w.triggerScreenUpdate()
 		}
 	} else {
 		w.wittyState = StateNormal
-		w.currentSuggestion = ""
+		w.currentSuggestion = nil
 	}
 }
 
-func getPrompt(state vt10x.State) string {
-	prompt := state.StringBeforeCursor()
+func (w *Witty) getPrompt() string {
+	prompt := w.terminalState.StringBeforeCursor()
 	if len(prompt) > 0 {
 		prompt = prompt[:len(prompt)-1] // remove the trailing newline inserted wrongly by the vt10x parser
 	}
@@ -205,16 +206,16 @@ func (w *Witty) updateScreen(s tcell.Screen, state *vt10x.State, width, height i
 	if state.CursorVisible() {
 		curx, cury := state.Cursor()
 		s.ShowCursor(curx, cury)
-		if w.currentSuggestion != "" {
+		if w.currentSuggestion != nil && w.currentSuggestion.Text != "" {
 			style := tcell.StyleDefault.Foreground(w.suggestionColor)
 			x := curx
 			y := cury
-			for i := 0; i < len(w.currentSuggestion); i++ {
-				if w.currentSuggestion[i] == '\n' {
+			for i := 0; i < len(w.currentSuggestion.Text); i++ {
+				if w.currentSuggestion.Text[i] == '\n' {
 					y++
 					x = 0
 				}
-				s.SetContent(x, y, rune(w.currentSuggestion[i]), nil, style)
+				s.SetContent(x, y, rune(w.currentSuggestion.Text[i]), nil, style)
 				x++
 			}
 		}
@@ -229,8 +230,8 @@ func (w *Witty) stdinToShellLoop(stdin chan []byte) {
 		log.Debug().Msgf("stdin: %+v", data)
 		switch w.wittyState {
 		case StateSuggesting:
-			if data[0] == '\t' && len(w.currentSuggestion) > 0 {
-				_, err := w.shellPty.Write([]byte(w.currentSuggestion))
+			if data[0] == '\t' && w.currentSuggestion != nil && len(w.currentSuggestion.Text) > 0 {
+				_, err := w.shellPty.Write([]byte(w.currentSuggestion.Text))
 				if err != nil {
 					log.Error().Err(err).Msg("failed to write to shell")
 					os.Exit(1)
@@ -247,11 +248,11 @@ func (w *Witty) stdinToShellLoop(stdin chan []byte) {
 			}
 
 			w.wittyState = StateNormal
-			w.currentSuggestion = ""
+			w.currentSuggestion = nil
 		case StateFetchingSuggestions:
 			// invalidate the suggestion fetch request as it is based on a stale prompt at this point
 			w.wittyState = StateNormal
-			w.currentSuggestion = ""
+			w.currentSuggestion = nil
 		}
 		_, err := w.shellPty.Write(data)
 		if err != nil {

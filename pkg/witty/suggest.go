@@ -10,17 +10,17 @@ const (
 	davinci = "davinci-codex"
 )
 
-func (w *Witty) suggest(prompt string) (string, error) {
+func (w *Witty) suggest(prompt string) (*codex.Choice, error) {
 	// Try cushman first, as it is faster and cheaper
 	suggestion, err := w.suggestWithEngine(cushman, prompt)
-	if err != nil || len(suggestion) == 0 {
+	if err != nil || suggestion == nil || len(suggestion.Text) == 0 {
 		// Try davinci as a fallback
 		suggestion, err = w.suggestWithEngine(davinci, prompt)
 	}
 	return suggestion, err
 }
 
-func (w *Witty) suggestWithEngine(engine, prompt string) (string, error) {
+func (w *Witty) suggestWithEngine(engine, prompt string) (*codex.Choice, error) {
 	log.Debug().Msgf("requesting suggestion to %s  with  prompt: %s", engine, prompt)
 
 	request := w.completionParameters
@@ -29,7 +29,7 @@ func (w *Witty) suggestWithEngine(engine, prompt string) (string, error) {
 
 	completion, err := codex.GenerateCompletions(request)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	log.Debug().Msgf("Got completions: %+v", completion)
 
@@ -39,7 +39,7 @@ func (w *Witty) suggestWithEngine(engine, prompt string) (string, error) {
 		for i, p := range probabilities {
 			log.Debug().Msgf("Token %s probability %.3f", choice.Logprobs.Tokens[i], p)
 		}
-		return completion.Choices[0].Text, nil
+		return &completion.Choices[0], nil
 	}
-	return "", nil
+	return nil, nil
 }
