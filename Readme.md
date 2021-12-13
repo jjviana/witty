@@ -61,6 +61,15 @@ Here Witty manipulates a CSV file and performs data transformations, while seaml
 
 https://user-images.githubusercontent.com/1808006/143598361-e68f450b-6586-4cef-b1e1-0dd89901bf08.mp4
 
+## Databases
+
+Generating a SQL query based on table descriptions and prompt: 
+
+https://user-images.githubusercontent.com/1808006/144070103-95d712bc-d266-4ea3-a0b1-0d65f73294c5.mp4
+
+
+
+
 # Credits
 
 This project would not have been possible without:
