@@ -85,6 +85,7 @@ func (w *Witty) Run() error {
 	go w.stdinToShellLoop(stdInChan)
 
 	width, height := w.screen.Size()
+	
 	vt10x.ResizePty(w.shellPty, width, height)
 	w.vterm.Resize(width, height)
 
