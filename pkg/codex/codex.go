@@ -1,14 +1,18 @@
 package codex
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/jjviana/codex/pkg/engine"
+	"github.com/rs/zerolog/log"
 	"io/ioutil"
 	"math"
 	"net/http"
-
-	"github.com/rs/zerolog/log"
+	"os"
+	"sort"
+	"strings"
 )
 
 type CompletionParameters struct {
@@ -100,9 +104,13 @@ type Completion struct {
 }
 
 type Choice struct {
-	Text     string   `json:"text"`
-	Index    int      `json:"index"`
-	Logprobs Logprobs `json:"logprobs"`
+	ChoiceText string   `json:"text"`
+	Index      int      `json:"index"`
+	Logprobs   Logprobs `json:"logprobs"`
+}
+
+func (c *Choice) Text() string {
+	return c.ChoiceText
 }
 
 type Logprobs struct {
@@ -139,4 +147,116 @@ func httpPost(url, apiKey, body string) ([]byte, error) {
 		return nil, err
 	}
 	return respBody, nil
+}
+
+type SuggestionEngine struct {
+	completionParameters CompletionParameters
+}
+
+const (
+	cushman = "code-cushman-001"
+	davinci = "code-davinci-002"
+)
+
+func (s *SuggestionEngine) suggestWithEngine(engine, prompt string) (*Choice, error) {
+	log.Debug().Msgf("requesting suggestion to %s  with  prompt: %s", engine, prompt)
+
+	request := s.completionParameters
+	request.Prompt = prompt
+	request.EngineID = engine
+
+	completion, err := GenerateCompletions(request)
+	if err != nil {
+		return nil, err
+	}
+	log.Debug().Msgf("Got completions: %+v", completion)
+
+	if len(completion.Choices) > 0 {
+		choice := completion.Choices[0]
+		probabilities := choice.Logprobs.TokenProbabilities()
+		for i, p := range probabilities {
+			log.Debug().Msgf("Token %s probability %.3f", choice.Logprobs.Tokens[i], p)
+		}
+		return &completion.Choices[0], nil
+	}
+	return nil, nil
+}
+func (s *SuggestionEngine) Suggest(prompt string) (engine.Suggestion, error) {
+	// Try cushman first, as it is faster and cheaper
+	suggestion, err := s.suggestWithEngine(cushman, prompt)
+	if err != nil || suggestion == nil || len(suggestion.ChoiceText) == 0 {
+		// Try davinci as a fallback
+		suggestion, err = s.suggestWithEngine(davinci, prompt)
+	}
+	return suggestion, err
+}
+
+type topChoice struct {
+	text        string
+	probability float64
+}
+
+func topChoices(m map[string]float64) []string {
+	var choices []topChoice
+	for k, v := range m {
+		choices = append(choices, topChoice{k, v})
+	}
+	// sort by probability
+	sort.Slice(choices, func(i, j int) bool {
+		return choices[i].probability > choices[j].probability
+	})
+	var returnChoices []string
+	for _, c := range choices {
+		returnChoices = append(returnChoices, c.text)
+	}
+	return returnChoices
+}
+
+func (s *SuggestionEngine) TopSuggestions(prompt string, current engine.Suggestion) ([]engine.Suggestion, error) {
+	choice := current.(*Choice)
+	topProbs := choice.Logprobs.TopLogProbs[0]
+	topChoices := topChoices(topProbs)
+	var suggestions []engine.Suggestion
+	for _, c := range topChoices {
+		suggestion, err := s.Suggest(prompt + c)
+		if err != nil {
+			return nil, err
+		}
+		suggestions = append(suggestions, suggestion)
+	}
+	return suggestions, nil
+}
+
+type configRepository interface {
+	Store(name string, config interface{}) error
+	Load(name string, config interface{}) error
+}
+
+func NewSuggestionEngine(configRepository configRepository) (*SuggestionEngine, error) {
+
+	completionParameters := CompletionParameters{}
+	err := configRepository.Load("OPENAI_COMPLETION_PARAMETERS", &completionParameters)
+
+	if err != nil {
+		completionParameters.MaxTokens = 64
+		completionParameters.Temperature = 0.0
+		completionParameters.Stop = []string{"\n"}
+		completionParameters.LogProbs = 10
+		// Read the API key from stdin
+		fmt.Print("Enter OpenAI API key: ")
+		reader := bufio.NewReader(os.Stdin)
+		apiKey, err := reader.ReadString('\n')
+		if err != nil {
+			return nil, err
+		}
+		completionParameters.APIKey = strings.TrimSpace(apiKey)
+
+		err = configRepository.Store("OPENAI_COMPLETION_PARAMETERS", completionParameters)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &SuggestionEngine{
+		completionParameters: completionParameters,
+	}, nil
 }

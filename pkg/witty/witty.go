@@ -2,6 +2,7 @@ package witty
 
 import (
 	"fmt"
+	"github.com/jjviana/codex/pkg/engine"
 	"os"
 	"os/exec"
 	"strings"
@@ -10,7 +11,6 @@ import (
 	"github.com/ActiveState/vt10x"
 	"github.com/creack/pty"
 	"github.com/gdamore/tcell/v2"
-	"github.com/jjviana/codex/pkg/codex"
 	"github.com/rs/zerolog/log"
 )
 
@@ -21,28 +21,28 @@ const (
 )
 
 type Witty struct {
-	shellCommand         string
-	shellArgs            []string
-	wittyState           int
-	currentSuggestion    *codex.Choice
-	completionParameters codex.CompletionParameters
-	terminalState        vt10x.State
-	vterm                *vt10x.VT
-	screen               tcell.Screen
-	shellPty             *os.File
-	suggestionColor      tcell.Color
-	updateTrigger        chan struct{}
+	shellCommand      string
+	shellArgs         []string
+	wittyState        int
+	currentSuggestion engine.Suggestion
+	suggestionEngine  engine.SuggestionEngine
+	terminalState     vt10x.State
+	vterm             *vt10x.VT
+	screen            tcell.Screen
+	shellPty          *os.File
+	suggestionColor   tcell.Color
+	updateTrigger     chan struct{}
 }
 
-func New(completionParameters codex.CompletionParameters, color tcell.Color, shell string, args []string) *Witty {
+func New(engine engine.SuggestionEngine, color tcell.Color, shell string, args []string) *Witty {
 	w := &Witty{
-		wittyState:           StateNormal,
-		completionParameters: completionParameters,
-		suggestionColor:      color,
-		shellCommand:         shell,
-		shellArgs:            args,
+		wittyState:       StateNormal,
+		suggestionEngine: engine,
+		suggestionColor:  color,
+		shellCommand:     shell,
+		shellArgs:        args,
 	}
-	w.completionParameters.LogProbs = 10
+
 	return w
 }
 
@@ -85,7 +85,7 @@ func (w *Witty) Run() error {
 	go w.stdinToShellLoop(stdInChan)
 
 	width, height := w.screen.Size()
-	
+
 	vt10x.ResizePty(w.shellPty, width, height)
 	w.vterm.Resize(width, height)
 
@@ -157,7 +157,7 @@ func (w *Witty) fetchSuggestions() {
 	prompt := w.getPrompt()
 	if len(prompt) > 0 {
 		log.Debug().Msgf("prompt: %s", prompt)
-		suggestion, err := w.suggest(prompt)
+		suggestion, err := w.suggestionEngine.Suggest(prompt)
 		if err != nil {
 			log.Error().Err(err).Msg("error fetching suggestion")
 			w.wittyState = StateNormal
@@ -167,7 +167,6 @@ func (w *Witty) fetchSuggestions() {
 		if w.wittyState == StateFetchingSuggestions { // someone else might have already changed the state
 			w.wittyState = StateSuggesting
 			w.currentSuggestion = suggestion
-			w.currentSuggestion.Text = strings.TrimRight(suggestion.Text, " ")
 			w.triggerScreenUpdate()
 		}
 	} else {
@@ -207,16 +206,17 @@ func (w *Witty) updateScreen(s tcell.Screen, state *vt10x.State, width, height i
 	if state.CursorVisible() {
 		curx, cury := state.Cursor()
 		s.ShowCursor(curx, cury)
-		if w.currentSuggestion != nil && w.currentSuggestion.Text != "" {
+		if w.currentSuggestion != nil && w.currentSuggestion.Text() != "" {
+			text := strings.TrimRight(w.currentSuggestion.Text(), " ")
 			style := tcell.StyleDefault.Foreground(w.suggestionColor)
 			x := curx
 			y := cury
-			for i := 0; i < len(w.currentSuggestion.Text); i++ {
-				if w.currentSuggestion.Text[i] == '\n' {
+			for i := 0; i < len(text); i++ {
+				if text[i] == '\n' {
 					y++
 					x = 0
 				}
-				s.SetContent(x, y, rune(w.currentSuggestion.Text[i]), nil, style)
+				s.SetContent(x, y, rune(text[i]), nil, style)
 				x++
 			}
 		}
@@ -231,8 +231,8 @@ func (w *Witty) stdinToShellLoop(stdin chan []byte) {
 		log.Debug().Msgf("stdin: %+v", data)
 		switch w.wittyState {
 		case StateSuggesting:
-			if data[0] == '\t' && w.currentSuggestion != nil && len(w.currentSuggestion.Text) > 0 {
-				_, err := w.shellPty.Write([]byte(w.currentSuggestion.Text))
+			if data[0] == '\t' && w.currentSuggestion != nil && len(w.currentSuggestion.Text()) > 0 {
+				_, err := w.shellPty.Write([]byte(w.currentSuggestion.Text()))
 				if err != nil {
 					log.Error().Err(err).Msg("failed to write to shell")
 					os.Exit(1)

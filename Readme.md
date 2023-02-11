@@ -1,26 +1,60 @@
 # WiTTY
 
-Witty is a smart terminal emulator, powered by [OpenAI Codex](https://openai.com/blog/openai-codex/).
-It will suggest completions for anything run under it (shell, text editors etc.) in a way that is similar to [Github Copilot](https://copilot.github.com/). 
+Witty is a smart terminal emulator powered by large code language models. It currently supports [OpenAI Codex](https://openai.com/blog/openai-codex/) and
+[Amazon CodeWhisperer](https://aws.amazon.com/codewhisperer/). 
 
-## Running
+As any terminal emulator, Witty will start the selected shell and pass all input to it. However, every time
+the terminal is idle (5 seconds by default), Witty will attempt to generate a completion suggestion. The suggestion
+will be rendered in a different color (configurable through the -c argument). Pressing tab will cause the suggestion to be accepted,
+and Witty will behave as if the user had typed it. Pressing any other key will cause the suggestion to be discarded. See the Demos section below
+for examples.
 
-You will need an OpenAI API key with access to the Codex models.
+## Getting Started
 
-## From source
+To use Codex, you will need an OpenAI API key with access to the Codex models. You can request one  [here](https://beta.openai.com/signup). 
+As of this writing, Codex is in private beta and requires an invitation to access.
+
+To use CodeWhisperer, you will be asked the first time you run Witty to log in using your AWS Builder ID and authorize Witty to access CodeWhisperer on your behalf.
+As of this writing, CodeWhisperer is in public beta and can be accessed by anyone with a free AWS Builder account.
+
+## Installation
+
+### From source
 
 ```
 git clone https://github.com/jjviana/witty.git
 cd witty/cmd/witty
 go build .
-export OPENAPI_API_KEY=<your api key>
 ./witty 
-(see --help for options)
+(see -h for options)
 ```
 
-## From binary releases
+### From binary releases
 
 Binaries for MacOS, Linux and Freebsd can be found in the [releases](https://github.com/jjviana/witty/releases) page.
+
+Mac users will need to manually open the app the first time, as it is not signed. To do that,
+right-click on the app and select "Open". You will be prompted to confirm that you want to open the app. It will
+immediately quit after that, but you will be able to open it normally from now on.
+
+## Running
+
+```
+./witty -e codex|codewhisperer [options]
+```
+The first time it is run with a specific engine, it will ask you to  either
+provide an API key (for Codex) or log in with your AWS Builder ID (for CodeWhisperer).
+
+Witty will run your default shell (specified in the SHELL environment variable) unless you specify a different command to run with the -c option.
+Arguments after  `--` argument will be passed to the shell.
+
+For instance, to run witty using CodeWhisperer and configuring the shell as a login shell:
+```
+./witty -e codewhisperer -- --login
+```
+
+See `witty -h` for the full list of options.
+
 # Demos
 
 In the demos below the autocomplete suggestions are rendered in red. 
@@ -73,6 +107,7 @@ https://user-images.githubusercontent.com/1808006/144070103-95d712bc-d266-4ea3-a
 # Credits
 
 This project would not have been possible without:
-- [OpenAI Codex](https://openai.com/blog/openai-codex/), of course.
+- [OpenAI Codex](https://openai.com/blog/openai-codex/)
+- [Amazon CodeWhisperer](https://aws.amazon.com/codewhisperer/)
 - [vt10x](https://github.com/ActiveState/vt10x), a terminal emulator backend in Go
 - [tcell](https://github.com/gdamore/tcell), a terminal screen renderer in Go
