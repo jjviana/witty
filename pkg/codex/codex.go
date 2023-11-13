@@ -154,8 +154,7 @@ type SuggestionEngine struct {
 }
 
 const (
-	cushman = "code-cushman-001"
-	davinci = "code-davinci-002"
+	gpt_3_5_turbo = "gpt-3.5-turbo-instruct"
 )
 
 func (s *SuggestionEngine) suggestWithEngine(engine, prompt string) (*Choice, error) {
@@ -182,12 +181,9 @@ func (s *SuggestionEngine) suggestWithEngine(engine, prompt string) (*Choice, er
 	return nil, nil
 }
 func (s *SuggestionEngine) Suggest(prompt string) (engine.Suggestion, error) {
-	// Try cushman first, as it is faster and cheaper
-	suggestion, err := s.suggestWithEngine(cushman, prompt)
-	if err != nil || suggestion == nil || len(suggestion.ChoiceText) == 0 {
-		// Try davinci as a fallback
-		suggestion, err = s.suggestWithEngine(davinci, prompt)
-	}
+	
+	suggestion, err := s.suggestWithEngine(gpt_3_5_turbo, prompt)
+
 	return suggestion, err
 }
 

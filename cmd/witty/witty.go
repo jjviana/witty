@@ -65,7 +65,7 @@ func parseArgs() *appConfig {
 		case "-e":
 			if i+1 < len(os.Args) {
 				conf.engine = os.Args[i+1]
-				if conf.engine != "codex" && conf.engine != "codewhisperer" {
+				if conf.engine != "gpt3.5" && conf.engine != "codewhisperer" {
 					log.Fatal().Msgf("invalid engine %s", conf.engine)
 					os.Exit(1)
 				}
@@ -82,7 +82,7 @@ func parseArgs() *appConfig {
 func printUsage() {
 	log.Printf("Usage: %s [options] [shell args]", os.Args[0])
 	log.Printf("Options:")
-	log.Printf("  -e <engine>: Selects the completion engine. Valid values are: codex or codewhisperer")
+	log.Printf("  -e <engine>: Selects the completion engine. Valid values are: gpt3.5 or codewhisperer")
 	log.Printf("  -d <file>: turn on debug mode and write to file.")
 	log.Printf("  -s shell: select shell to run (default $SHELL)")
 	log.Printf("  --: pass the rest of the args to the shell.")
@@ -127,7 +127,7 @@ func main() {
 	var err error
 
 	switch c.engine {
-	case "codex":
+	case "gpt3.5":
 		e, err = codex.NewSuggestionEngine(configRepo)
 		if err != nil {
 			fmt.Printf("failed to create codex engine: %s", err)
@@ -142,7 +142,7 @@ func main() {
 		}
 
 	default:
-		fmt.Printf("Invalid engine specified: %s. Choose between codex or codewhisperer\n", c.engine)
+		fmt.Printf("Invalid engine specified: %s. Choose between gpt3.5 or codewhisperer\n", c.engine)
 		return
 	}
 

@@ -1,6 +1,6 @@
 # WiTTY
 
-Witty is a smart terminal emulator powered by large code language models. It currently supports [OpenAI Codex](https://openai.com/blog/openai-codex/) and
+Witty is a smart terminal emulator powered by large code language models. It currently supports [OpenAI GPT-3.5](https://platform.openai.com/docs/models/gpt-3-5) and
 [Amazon CodeWhisperer](https://aws.amazon.com/codewhisperer/). 
 
 As any terminal emulator, Witty will start the selected shell and pass all input to it. However, every time
@@ -11,11 +11,9 @@ for examples.
 
 ## Getting Started
 
-To use Codex, you will need an OpenAI API key with access to the Codex models. You can request one  [here](https://beta.openai.com/signup). 
-As of this writing, Codex is in private beta and requires an invitation to access.
+To use GPT-3.5, you will need an OpenAI API key. 
 
 To use CodeWhisperer, you will be asked the first time you run Witty to log in using your AWS Builder ID and authorize Witty to access CodeWhisperer on your behalf.
-As of this writing, CodeWhisperer is in public beta and can be accessed by anyone with a free AWS Builder account.
 
 ## Installation
 
@@ -40,10 +38,10 @@ immediately quit after that, but you will be able to open it normally from now o
 ## Running
 
 ```
-./witty -e codex|codewhisperer [options]
+./witty -e gpt3.5|codewhisperer [options]
 ```
 The first time it is run with a specific engine, it will ask you to  either
-provide an API key (for Codex) or log in with your AWS Builder ID (for CodeWhisperer).
+provide an API key (for GPt-3.5) or log in with your AWS Builder ID (for CodeWhisperer).
 
 Witty will run your default shell (specified in the SHELL environment variable) unless you specify a different command to run with the -c option.
 Arguments after  `--` argument will be passed to the shell.
@@ -107,7 +105,7 @@ https://user-images.githubusercontent.com/1808006/144070103-95d712bc-d266-4ea3-a
 # Credits
 
 This project would not have been possible without:
-- [OpenAI Codex](https://openai.com/blog/openai-codex/)
+- [OpenAI GPT-3.5](https://platform.openai.com/docs/models/gpt-3-5)
 - [Amazon CodeWhisperer](https://aws.amazon.com/codewhisperer/)
 - [vt10x](https://github.com/ActiveState/vt10x), a terminal emulator backend in Go
 - [tcell](https://github.com/gdamore/tcell), a terminal screen renderer in Go

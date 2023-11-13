@@ -47,8 +47,8 @@ func (s *codeWhispererSuggestion) Text() string {
 	return ""
 }
 
-const fileName = "dummy.py"
-const languageName = "python"
+const fileName = "script.sh"
+const languageName = "shell"
 
 // Suggest returns a suggestion for the given prompt.
 func (c *CodeWhisperer) Suggest(prompt string) (engine.Suggestion, error) {
